@@ -1,12 +1,12 @@
 import numpy as np
 from numba import njit
 import inspect, warnings
-from typing import Tuple, Dict, Union, ClassVar, NewType, List, Type
-from enum import Enum
+from typing import Tuple, Dict, Union, ClassVar, NewType, List
+from enum import Enum, IntEnum
 
 numba_cache = False
 
-Float = Union[float, Type[np.floating]]
+Float = Union[float, np.floating]
 VectorE = NewType("VectorE", np.ndarray)
 VectorI = NewType("VectorI", np.ndarray)
 ArrayIE = NewType("ArrayIE", np.ndarray)
@@ -20,14 +20,15 @@ StimulusPreference = NewType("StimulusPreference", np.ndarray)
 Afferents = NewType("Afferents", np.ndarray)
 
 
-_leaf_types = (str, bytes, float, int, bool, np.ndarray,
+_leaf_types = (str, bytes, float, int, bool, Enum, IntEnum, np.ndarray,
                np.float16, np.int32, np.int64, np.float32, np.float64, np.float128)
 LeafTypes = Union[_leaf_types]
 ParamDict = Dict[str, Union['ParamDict', LeafTypes]]
 ParamPath = Tuple[str, ...]
 ParamSpacePt = Dict[ParamPath, LeafTypes]
 
-ParamArray = Union[List[_leaf_types], np.ndarray]
+ParamArrayElem = NewType("ParamArrayElem", Union[_leaf_types])
+ParamArray = Union[List[ParamArrayElem], np.ndarray]
 ParamRanges = Dict[str, Union["ParamRanges", ParamArray]]
 
 
@@ -131,6 +132,12 @@ class SimParams:
 
         del frame
 
+    def modify_value(self, params: ParamDict, leaf: Union[Leaf, LeafTypes], value: ParamArrayElem) -> None:
+        path_to = self._path_to(leaf)
+        for name in path_to[:-1]:
+            params = params[name]
+        params[path_to[-1]] = value
+
     def include_range(self, param_ranges: ParamRanges,
                       leaf: Union[Leaf, LeafTypes], values: ParamArray) -> None:
         """
@@ -197,15 +204,6 @@ class PlasticityTypeEtoI(Enum):
     #     return cls._member_map_[name]
 
 
-class PlasticityTypeItoE(Enum):
-    GRADIENT = 1
-    APPROXIMATE = 2
-    # Doesn't work with numba
-    # @classmethod
-    # def from_str(cls, name: str) -> "PlasticityTypeItoE":
-    #     return cls._member_map_[name]
-
-
 @njit(cache=numba_cache)
 def plasticity_ie_type_from_str(name: str) -> PlasticityTypeEtoI:
     """
@@ -224,6 +222,15 @@ def plasticity_ie_type_from_str(name: str) -> PlasticityTypeEtoI:
         raise ValueError("Unknown PlasticityTypeEtoI")
 
 
+class PlasticityTypeItoE(Enum):
+    GRADIENT = 1
+    APPROXIMATE = 2
+    # Doesn't work with numba
+    # @classmethod
+    # def from_str(cls, name: str) -> "PlasticityTypeItoE":
+    #     return cls._member_map_[name]
+
+
 @njit(cache=numba_cache)
 def plasticity_ei_type_from_str(name: str) -> PlasticityTypeItoE:
     """
@@ -238,6 +245,33 @@ def plasticity_ei_type_from_str(name: str) -> PlasticityTypeItoE:
     else:
         print(name)
         raise ValueError("Unknown PlasticityTypeItoE")
+
+
+class IsPlastic(Enum):
+    NEITHER = 1
+    BOTH = 2
+    EXC = 3
+    INH = 4
+
+
+@njit(cache=numba_cache)
+def is_plastic_from_str(name: str) -> IsPlastic:
+    """
+    Necessary due to Numba not supporting _member_map_ access in class methods.
+    :param name: The name of the enumeration value.
+    :return: The enumeration value.
+    """
+    if name == "NEITHER":
+        return IsPlastic.NEITHER
+    elif name == "BOTH":
+        return IsPlastic.BOTH
+    elif name == "EXC":
+        return IsPlastic.EXC
+    elif name == "INH":
+        return IsPlastic.INH
+    else:
+        print(name)
+        raise ValueError("Unknown IsPlastic")
 
 
 class NumericalIntegration(SimParams):
@@ -323,7 +357,7 @@ class Plasticity(SimParams):
     def __init__(
         self,
         rho0: Float,
-        is_plastic: str,
+        is_plastic: Union[str, IsPlastic],
         bp_weights: bool,
         eta_e: Float,
         eta_i: Float,
@@ -339,7 +373,8 @@ class Plasticity(SimParams):
     ):
         super().__init__()
         self.rho0: Float = rho0
-        self.is_plastic: str = is_plastic
+        self.is_plastic: IsPlastic = is_plastic if isinstance(is_plastic, IsPlastic) \
+            else is_plastic_from_str(is_plastic)
         self.bp_weights: bool = bp_weights
         self.bcm: BCMParams = BCMParams(**bcm) if isinstance(bcm, dict) else bcm
         self.eta_e: Float = eta_e
@@ -350,10 +385,10 @@ class Plasticity(SimParams):
         self.convergence_max: Float = convergence_max
         self.convergence_mean: Float = convergence_mean
         self.soft_max: bool = soft_max
-        self.plasticity_type_ei: str = plasticity_type_ei.name \
-            if isinstance(plasticity_type_ei, PlasticityTypeItoE) else plasticity_type_ei
-        self.plasticity_type_ie: str = plasticity_type_ie.name \
-            if isinstance(plasticity_type_ie, PlasticityTypeEtoI) else plasticity_type_ie
+        self.plasticity_type_ei: PlasticityTypeItoE = plasticity_type_ei \
+            if isinstance(plasticity_type_ei, PlasticityTypeItoE) else plasticity_ei_type_from_str(plasticity_type_ei)
+        self.plasticity_type_ie: PlasticityTypeEtoI = plasticity_type_ie \
+            if isinstance(plasticity_type_ie, PlasticityTypeEtoI) else plasticity_ie_type_from_str(plasticity_type_ie)
 
 
 class PopulationInput(SimParams):

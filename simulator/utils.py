@@ -1,38 +1,39 @@
 import numpy as np
 from numba import njit
-from typing import Union, Tuple, Type
+from typing import Union, Iterable, Type
 from .params import SimParams, Float, numba_cache
 from .params import VectorE, VectorI, ArrayXY
 
 
 @njit(cache=False)
 def allocate_aligned(
-        shape: Union[int, Tuple[int, ...]],
-        fill_value: [np.number, int, float] = 0,
+        shape: Union[int, Iterable[int]],
+        fill_value: np.number = 0,
         dtype: Type[np.number] = SimParams.float_type
 ) -> np.ndarray:
     """
 
     :param shape:
     :param fill_value:
-    :param dtype_:
+    :param dtype:
     :return:
     """
-    # NUMBA allocates arrays with 32-byte alignment
-    return np.full(shape, fill_value, dtype=dtype)
+    a = np.full(shape, fill_value, dtype=dtype)
+    assert not a.ctypes.data % 32, "NUMBA failed to allocate the array with 32-byte alignment"
+    return a
 
 
 def reallocate_aligned(
         a: np.ndarray
 ) -> np.ndarray:
     """
+    For use when an array is allocated elsewhere (e.g. in Numpy), but we need the array to be 32-byte aligned.
 
     :param a: Array to be reallocated.
     :return: Returns a newly allocated array
     """
-    b = allocate_aligned(a.shape, a.dtype)
+    b = allocate_aligned(a.shape, dtype=a.dtype)
     np.copyto(b, a)
-    # assert not b.ctypes.data % alignment
     return b
 
 

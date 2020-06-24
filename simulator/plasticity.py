@@ -66,7 +66,7 @@ def wie_approximate_gradient(
     # cie /= sum_ie
     fp_error = propagation_matrix @ error
 
-    fp_error[:] *= np.reciprocal(1 + np.exp(-hi))
+    fp_error *= np.reciprocal(1 + np.exp(-hi))
     delta_vie = np.outer(fp_error, re)
     delta_vie *= nonlinearity_derivative(vie, alpha_ie, ie_max)
     return delta_vie
@@ -160,10 +160,10 @@ def gradient_compute(
     n_e, n_i = wei.shape
     dia_i = np.diag(nonlinearity_derivative(hi, 1))
     dia_e = np.diag(nonlinearity_derivative(he, 1))
-    # M = np.linalg.inv(np.eye(n_i, dtype=SimParams.float_type) + wii @ dia_i)
-    # W = np.linalg.inv(np.eye(n_e, dtype=SimParams.float_type) - wee @ dia_e + wei_i_M @ wie @ dia_e)
-    wei_dia_i_m = wei @ dia_i @ np.linalg.inv(np.eye(n_i, dtype=SimParams.float_type) + wii @ dia_i)
-    error_w = error @ np.linalg.inv(np.eye(n_e, dtype=SimParams.float_type) - wee @ dia_e + wei_dia_i_m @ wie @ dia_e)
+    # M = np.linalg.inv(np.eye(n_i, dtype=wii.dtype) + wii @ dia_i)
+    # W = np.linalg.inv(np.eye(n_e, dtype=wee.dtype) - wee @ dia_e + wei_i_M @ wie @ dia_e)
+    wei_dia_i_m = wei @ dia_i @ np.linalg.inv(np.eye(n_i, dtype=wei.dtype) + wii @ dia_i)
+    error_w = error @ np.linalg.inv(np.eye(n_e, dtype=wee.dtype) - wee @ dia_e + wei_dia_i_m @ wie @ dia_e)
     if eta_i > 0:
         delta_ei = np.outer(error_w, ri)
         grad_ei[...] = delta_ei * nonlinearity_derivative(vei, alpha_ei, ei_max)

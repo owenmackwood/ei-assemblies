@@ -4,16 +4,16 @@ if DISABLE_NUMBA:
     os.environ['NUMBA_DISABLE_JIT'] = '1'
 
 from matplotlib.gridspec import GridSpec
-from simulator.params import ExperimentType, PlasticityTypeItoE, PlasticityTypeEtoI
+from simulator.params import ExperimentType, PlasticityTypeItoE, PlasticityTypeEtoI, IsPlastic
+from simulator.params import AllParameters
 
 N_TRIALS = 500
 EVERY_N = N_TRIALS
 
-IS_PLASTIC = ["neither", "both", "exc", "inh"]
-DEFAULT_PLASTIC = "both"
+DEFAULT_PLASTIC = IsPlastic.BOTH
 VARY_PL_TYPE = 1
 
-RUN_EXP = ExperimentType.ANTEROGRADE
+RUN_EXP = ExperimentType.APPROXIMATE
 
 if RUN_EXP == ExperimentType.GRADIENT:
     E2I_PLASTICITY = PlasticityTypeEtoI.GRADIENT
@@ -35,7 +35,6 @@ else:
 
 PLOT_AFFERENTS = False
 PLOT_WEIGHT_HIST = False
-INCREMENT_STEPS_ON_NON_CONVERGENCE = 0
 ADD_BACKGROUND_NOISE = False
 LOCAL_AFFERENTS = True
 
@@ -45,12 +44,11 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     from time import time
     from scipy.stats import spearmanr
     from numpy.linalg import norm
-    from simulator.utils import allocate_aligned, reallocate_aligned
+    from simulator.utils import allocate_aligned
     from simulator.rates import train_network, estimate_responses
     from simulator.setup import make_afferents, afferents_plot, make_synapses
     from simulator.params import AllParameters
     from simulator.params import VectorE, VectorI, ArrayIE, ArrayEE, ArrayEI
-    from simulator.params import plasticity_ei_type_from_str, plasticity_ie_type_from_str
     from simulator.plasticity import MomentEstimate
     # import mkl
     # if on_cluster:
@@ -74,17 +72,17 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     max_dr_dt_exc = dt_tau_e * ni.max_dr
     max_dr_dt_inh = dt_tau_i * ni.max_dr
 
-    if pl.is_plastic == "inh":
+    if pl.is_plastic == IsPlastic.INH:
         pl.eta_e = dtype(0)
-    elif pl.is_plastic == "exc":
+    elif pl.is_plastic == IsPlastic.EXC:
         pl.eta_i = dtype(0)
-    elif pl.is_plastic == "neither":
+    elif pl.is_plastic == IsPlastic.NEITHER:
         pl.eta_e = pl.eta_i = dtype(0)
         ni.n_trials = 0
 
     aff_arrays = make_afferents(ng.n_d, ng.exc.n_per_axis, inp.n_stimuli, inp.exc.bg_input,
                                 inp.exc.peak_stimulus, inp.vonmises_kappa, PLOT_AFFERENTS)
-    if params.sy.e2e.w_total > dtype(0):
+    if params.sy.e2e.w_total > 0:
         if not LOCAL_AFFERENTS:
             for i in range(n_e):
                 flat_afferents = aff_arrays.afferents[..., i].flatten()
@@ -145,27 +143,24 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     corr = np.corrcoef(flattened)
     correlations_ee[..., 0] = corr
 
-    pl_type_ie: PlasticityTypeEtoI = plasticity_ie_type_from_str(pl.plasticity_type_ie)
-    pl_type_ei: PlasticityTypeItoE = plasticity_ei_type_from_str(pl.plasticity_type_ei)
-
     if COMPUTE_GRADIENT_ANGLES and pl.eta_e > 0:
-        angles_ie = np.full((inp.n_stimuli ** params.ng.n_d * ni.n_trials), np.NaN, dtype=dtype)
+        angles_ie = allocate_aligned((inp.n_stimuli ** params.ng.n_d * ni.n_trials), np.NaN, dtype=dtype)
     else:
         angles_ie = None
 
     if COMPUTE_GRADIENT_ANGLES and pl.eta_i > 0:
-        np.full((inp.n_stimuli**params.ng.n_d * ni.n_trials), np.NaN, dtype=dtype)
+        angles_ei = allocate_aligned((inp.n_stimuli**params.ng.n_d * ni.n_trials), np.NaN, dtype=dtype)
     else:
         angles_ei = None
 
-    if pl_type_ei == PlasticityTypeItoE.GRADIENT and ni.n_trials:
+    if pl.plasticity_type_ei == PlasticityTypeItoE.GRADIENT and ni.n_trials:
         adam_ei = MomentEstimate(
             ArrayEI(allocate_aligned(sya.wei.shape, dtype=sya.wei.dtype)),
             ArrayEI(allocate_aligned(sya.wei.shape, dtype=sya.wei.dtype)),
         )
     else:
         adam_ei = None
-    if pl_type_ie == PlasticityTypeEtoI.GRADIENT and ni.n_trials:
+    if pl.plasticity_type_ie == PlasticityTypeEtoI.GRADIENT and ni.n_trials:
         adam_ie = MomentEstimate(
             ArrayIE(allocate_aligned(sya.wie.shape, dtype=sya.wie.dtype)),
             ArrayIE(allocate_aligned(sya.wie.shape, dtype=sya.wie.dtype)),
@@ -189,6 +184,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
             mu_idx = EVERY_N * (inp.n_stimuli ** ng.n_d)
 
             if False:  # and not converged:
+                import matplotlib.pyplot as plt
                 fig = plt.figure()
                 gs = GridSpec(2, 2)
                 ax = fig.add_subplot(gs[0, 0])
@@ -207,7 +203,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
                 re=r_e, ri=r_i, sya=sya,
                 eta_e=pl.eta_e, eta_i=pl.eta_i,
                 wie_decay=pl.wie_decay, wei_decay=pl.wei_decay,
-                plasticity_type_ie=pl_type_ie, plasticity_type_ei=pl_type_ei,
+                plasticity_type_ie=pl.plasticity_type_ie, plasticity_type_ei=pl.plasticity_type_ei,
                 bp_weights=pl.bp_weights,
                 afferents=aff_arrays.afferents,  bg_input_inh=inp.inh.bg_input,
                 inh_in=inh_in_buffer, trial_t=all_t[m * EVERY_N: (m + 1) * EVERY_N, :],
@@ -223,7 +219,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
                 rec_re=recording_re, rec_ri=recording_ri,
                 max_steps=ni.max_steps,
                 do_abort=ni.do_abort,
-                increment_steps_on_non_convergence=INCREMENT_STEPS_ON_NON_CONVERGENCE,
+                increment_steps_on_non_convergence=0,
                 bcm_theta=pl.bcm.theta,
                 adam_ie=adam_ie, adam_ei=adam_ei,
                 angles_ie=angles_ie[m * mu_idx:(m + 1) * mu_idx] if angles_ie is not None else None,
@@ -258,6 +254,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
         print("wei had NaN or inf values")
 
     if False:  # and not converged:
+        import matplotlib.pyplot as plt
         fig = plt.figure()
         gs = GridSpec(2, 2)
         ax = fig.add_subplot(gs[0, 0])
@@ -326,7 +323,8 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
                 response_sim_ee[i, j] = np.dot(eci, ecj) / (n2_exc[i] * n2_exc[j])
 
     plot_rs = True
-    if plot_rs and not on_cluster:
+    if plot_rs:
+        import matplotlib.pyplot as plt
         fig = plt.figure()
         gs = GridSpec(2, 2)
         response_sim_ee[np.diag_indices_from(response_sim_ee)] = 0
@@ -406,15 +404,12 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     return results
 
 
-class Assemblies3d:
-    run_task = staticmethod(run_task)
-
+class AssembliesLearn:
     @staticmethod
-    def prepare_params():
+    def _prepare_params() -> AllParameters:
         from simulator.params import NumericalIntegration, NeuronGroups
         from simulator.params import Synapses, x2y, Plasticity
         from simulator.params import Population, PopulationInput, Inputs
-        from simulator.params import AllParameters
 
         numint = NumericalIntegration(
             dt=1e-3,
@@ -442,7 +437,7 @@ class Assemblies3d:
 
         pl = Plasticity(
             rho0=1.0,
-            is_plastic="both",
+            is_plastic=IsPlastic.BOTH,
             bp_weights=True,
             eta_e=ETA_E,
             eta_i=ETA_I,
@@ -466,21 +461,24 @@ class Assemblies3d:
         )
         return AllParameters(numint=numint, ng=ng, sy=sy, pl=pl, inp=inp)
 
-    def _prepare_tasks(self):
-        from simulator.params import ParamRanges
 
-        with Assemblies3d.prepare_params() as params:
+    @staticmethod
+    def run(result_path, dir_suffix):
+        from itertools import product
 
-            param_ranges: ParamRanges = {}
+        with AssembliesLearn._prepare_params() as params:
+            all_ranges = []
             if VARY_PL_TYPE:
-                params.include_range(
-                    param_ranges, params.pl.is_plastic, IS_PLASTIC
-                )
+                all_ranges.append(((params.pl.is_plastic, is_plastic) for is_plastic in IsPlastic))
+                all_ranges.append(((params.ng.exc.n_per_axis, n) for n in [4, 8]))
 
-            return params.dict(), param_ranges
-
-    def run(self, result_path, dir_suffix):
-        raise NotImplementedError()
+            for param_ranges in product(*all_ranges):
+                temp_params = params.dict()
+                for param, value in param_ranges:
+                    params.modify_value(
+                        temp_params, param, value
+                    )
+                run_task(temp_params, '', '')
 
 
 if __name__ == "__main__":
@@ -489,14 +487,10 @@ if __name__ == "__main__":
     dir_suffix = f"_{N_TRIALS}trials"
     if RUN_EXP == ExperimentType.GRADIENT:
         dir_suffix += "_gradients"
-    elif RUN_EXP == ExperimentType.APPROXIMATE:
+    else:
         dir_suffix += "_approx"
-    elif RUN_EXP == ExperimentType.APPROXIMATE_GRAD:
-        dir_suffix += "_approx_w_grad_angle"
-    elif RUN_EXP == ExperimentType.ANTEROGRADE:
-        dir_suffix += "_anterograde"
 
-    job_info = Assemblies3d().run(
+    job_info = AssembliesLearn.run(
         os.path.expanduser("~/experiments"),
         dir_suffix=dir_suffix,
     )

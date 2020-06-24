@@ -4,7 +4,7 @@ from itertools import product
 from typing import Union, List
 from .utils import allocate_aligned
 from typing import Tuple, Optional
-from .params import dtype, numba_cache
+from .params import Float, numba_cache
 from .params import VectorE, VectorI, ArrayIE, ArrayEE, ArrayEI, ArrayII
 from .params import Afferents, PlasticityTypeItoE, PlasticityTypeEtoI
 from .setup import SynapseArrays
@@ -14,13 +14,13 @@ from .plasticity import MomentEstimate, update_weights
 @njit(cache=numba_cache)
 def compute_steady_state(
     re: VectorE, ri: VectorI, wee: ArrayEE, wei: ArrayEI, wie: ArrayIE, wii: ArrayII, total_input,
-    bg_input_inh: Union[dtype, VectorI],
+    bg_input_inh: Union[Float, VectorI],
     dt_tau_e, dt_tau_i, r_max, max_dr_dt_exc, max_dr_dt_inh,
     max_steps, rec_re, rec_ri
 ) -> Tuple[bool, int, VectorE, VectorI]:
     converged = False
     t = 0
-    ge, gi = dtype(0), dtype(0)
+    ge, gi = 0, 0
     de, di = np.zeros_like(re), np.zeros_like(ri)
     he, hi = re.copy(), ri.copy()
     while not converged and t < max_steps:
@@ -37,7 +37,7 @@ def compute_steady_state(
         ge = (
             np.abs(de[np.logical_not(escape_e)]).max()
             if not np.all(escape_e)
-            else dtype(0)
+            else 0
         )
 
         hi += di
@@ -50,7 +50,7 @@ def compute_steady_state(
         gi = (
             np.abs(di[np.logical_not(escape_i)]).max()
             if not np.all(escape_i)
-            else dtype(0)
+            else 0
         )
 
         if t < rec_re.shape[1]:
@@ -70,29 +70,29 @@ def compute_steady_state(
 @njit(cache=numba_cache)
 def train_network(
         n_trials: int,
-        rho0: dtype,
+        rho0: Float,
         re: VectorE,
         ri: VectorI,
         sya: SynapseArrays,
-        eta_e: dtype,
-        eta_i: dtype,
-        wie_decay: dtype,
-        wei_decay: dtype,
+        eta_e: Float,
+        eta_i: Float,
+        wie_decay: Float,
+        wei_decay: Float,
         bp_weights: bool,
         plasticity_type_ie: PlasticityTypeEtoI,
         plasticity_type_ei: PlasticityTypeItoE,
         afferents: Afferents,
-        bg_input_inh: Union[dtype, VectorI],
+        bg_input_inh: Union[Float, VectorI],
         inh_in: np.ndarray,
         trial_t: np.ndarray,
-        dt_tau_e: dtype,
-        dt_tau_i: dtype,
-        dt_bcm_tau_inv: dtype,
-        r_max: dtype,
-        max_dr_dt_exc: dtype,
-        max_dr_dt_inh: dtype,
-        convergence_max: dtype,
-        convergence_mean: dtype,
+        dt_tau_e: Float,
+        dt_tau_i: Float,
+        dt_bcm_tau_inv: Float,
+        r_max: Float,
+        max_dr_dt_exc: Float,
+        max_dr_dt_inh: Float,
+        convergence_max: Float,
+        convergence_mean: Float,
         x_locations: np.ndarray,
         y_locations: np.ndarray,
         z_locations: np.ndarray,
@@ -102,7 +102,7 @@ def train_network(
         max_steps: int,
         do_abort: bool,
         increment_steps_on_non_convergence: int,
-        bcm_theta: dtype,
+        bcm_theta: Float,
         adam_ie: Optional[MomentEstimate] = None,
         adam_ei: Optional[MomentEstimate] = None,
         angles_ie: Optional[np.ndarray] = None,
@@ -118,7 +118,7 @@ def train_network(
     # inh_in = np.zeros((n_stimuli, n_stimuli, n_stimuli, n_e, last_n), dtype=dtype)
     # trial_t = np.empty((n_trials, n_stimuli ** n_d), dtype=np.int32)
     # trial_t.fill(-1)
-    all_di = allocate_aligned((n_trials - 1, 2), np.NaN, dtype=dtype)
+    all_di = allocate_aligned((n_trials - 1, 2), np.NaN, dtype=ri.dtype)
     buff_idx = np.arange(last_n)
     r_i_slow = allocate_aligned(ri.shape, bcm_theta, ri.dtype)
 
@@ -236,8 +236,8 @@ def train_network(
 def plasticity_converged(
     buff_idx: np.ndarray, n: int, inh_in: np.ndarray,
     x_locations: np.ndarray, y_locations: np.ndarray, z_locations: np.ndarray, n_e: int,
-) -> Tuple[dtype, dtype]:
-    inh_diff = np.zeros((x_locations.size, y_locations.size, z_locations.size, n_e), dtype=dtype)
+) -> Tuple[Float, Float]:
+    inh_diff = np.zeros((x_locations.size, y_locations.size, z_locations.size, n_e), dtype=inh_in.dtype)
     inh_dup = np.zeros_like(inh_in)
     inh_dup[..., :] = inh_in[..., buff_idx]
     valid_idx = slice(
@@ -253,21 +253,22 @@ def plasticity_converged(
     # inh_mean = inh_in.mean(axis=-1)
     # di = inh_mean[..., None] - inh_in
     # inh_diff[...] = di.sum(axis=-1)
-    di_max, di_mu = np.max(inh_diff), np.mean(inh_diff)
-    return dtype(di_max), dtype(di_mu)
+    di_max: Float = np.max(inh_diff)
+    di_mu: Float =  np.mean(inh_diff)
+    return di_max, di_mu
 
 
 def estimate_responses(
         n_stimuli: int,
         locations_idx: List[np.ndarray],
         afferents: Afferents,
-        bg_input_inh: Union[dtype, VectorI],
+        bg_input_inh: Union[Float, VectorI],
         n_e: int, n_i: int,
-        rho0: dtype,
+        rho0: Float,
         sya: SynapseArrays,
-        dt_tau_e: dtype, dt_tau_i: dtype,
-        r_max: dtype,
-        max_dr_dt_exc: dtype, max_dr_dt_inh: dtype,
+        dt_tau_e: Float, dt_tau_i: Float,
+        r_max: Float,
+        max_dr_dt_exc: Float, max_dr_dt_inh: Float,
         max_steps: int,
         recording_re: np.ndarray, recording_ri: np.ndarray
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
@@ -276,12 +277,12 @@ def estimate_responses(
     wei = sya.wei
     wie = sya.wie
     wii = sya.wii
-    responses_exc = np.empty((n_stimuli, n_stimuli, n_stimuli, n_e), dtype=dtype)
-    responses_inh = np.empty((n_stimuli, n_stimuli, n_stimuli, n_i), dtype=dtype)
-    inh_in = np.zeros((n_stimuli, n_stimuli, n_stimuli, n_e), dtype=dtype)
-    exc_in = np.zeros((n_stimuli, n_stimuli, n_stimuli, n_e), dtype=dtype)
-    r_e = VectorE(allocate_aligned(n_e, dtype=dtype))
-    r_i = VectorI(allocate_aligned(n_i, dtype=dtype))
+    r_e = VectorE(allocate_aligned(n_e, dtype=type(rho0)))
+    r_i = VectorI(allocate_aligned(n_i, dtype=type(rho0)))
+    responses_exc = np.empty((n_stimuli, n_stimuli, n_stimuli, n_e), dtype=r_e.dtype)
+    responses_inh = np.empty((n_stimuli, n_stimuli, n_stimuli, n_i), dtype=r_i.dtype)
+    inh_in = np.zeros((n_stimuli, n_stimuli, n_stimuli, n_e), dtype=r_i.dtype)
+    exc_in = np.zeros((n_stimuli, n_stimuli, n_stimuli, n_e), dtype=r_e.dtype)
     for i, j, k in product(*locations_idx):
         recording_re.fill(np.NaN)
         recording_ri.fill(np.NaN)
