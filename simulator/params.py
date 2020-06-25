@@ -4,9 +4,8 @@ import inspect, warnings
 from typing import Tuple, Dict, Union, ClassVar, NewType, List
 from enum import Enum, IntEnum
 
-numba_cache = False
+numba_cache = True
 
-Float = Union[float, np.floating]
 VectorE = NewType("VectorE", np.ndarray)
 VectorI = NewType("VectorI", np.ndarray)
 ArrayIE = NewType("ArrayIE", np.ndarray)
@@ -19,18 +18,22 @@ Locations = NewType("Locations", np.ndarray)
 StimulusPreference = NewType("StimulusPreference", np.ndarray)
 Afferents = NewType("Afferents", np.ndarray)
 
+Float = Union[float, np.floating]
 
-_leaf_types = (str, bytes, float, int, bool, Enum, IntEnum, np.ndarray,
-               np.float16, np.int32, np.int64, np.float32, np.float64, np.float128)
+_scalar_types = (float, int, bool, Enum, IntEnum, np.floating)
+Scalar = Union[_scalar_types]
+
+_leaf_types = _scalar_types + (str, bytes, list, np.ndarray)
 LeafTypes = Union[_leaf_types]
+
 ParamDict = Dict[str, Union['ParamDict', LeafTypes]]
 ParamPath = Tuple[str, ...]
 ParamSpacePt = Dict[ParamPath, LeafTypes]
 
-ParamArrayElem = NewType("ParamArrayElem", Union[_leaf_types])
-ParamArray = Union[List[ParamArrayElem], np.ndarray]
+ParamArray = Union[List[LeafTypes], np.ndarray]
 ParamRanges = Dict[str, Union["ParamRanges", ParamArray]]
 
+SimResults = Dict[str, Union["SimResults", LeafTypes]]
 
 class Leaf:
     """
@@ -132,11 +135,13 @@ class SimParams:
 
         del frame
 
-    def modify_value(self, params: ParamDict, leaf: Union[Leaf, LeafTypes], value: ParamArrayElem) -> None:
+    def modify_value(self, params: ParamDict, leaf: Union[Leaf, LeafTypes], value: LeafTypes) -> str:
         path_to = self._path_to(leaf)
+        path_string = ".".join(path_to) + f"{value}"
         for name in path_to[:-1]:
             params = params[name]
         params[path_to[-1]] = value
+        return path_string
 
     def include_range(self, param_ranges: ParamRanges,
                       leaf: Union[Leaf, LeafTypes], values: ParamArray) -> None:
@@ -192,12 +197,13 @@ class SimParams:
 class ExperimentType(Enum):
     GRADIENT = 1
     APPROXIMATE = 2
+    PERTURB = 3
 
 
 class PlasticityTypeEtoI(Enum):
     GRADIENT = 1
-    APPROXIMATE = 2
-    ANTEROGRADE = 3
+    BACKPROP = 2
+    APPROXIMATE = 3
     # Doesn't work with numba
     # @classmethod
     # def from_str(cls, name: str) -> "PlasticityTypeEtoI":
@@ -213,10 +219,10 @@ def plasticity_ie_type_from_str(name: str) -> PlasticityTypeEtoI:
     """
     if name == "GRADIENT":
         return PlasticityTypeEtoI.GRADIENT
+    elif name == "BACKPROP":
+        return PlasticityTypeEtoI.BACKPROP
     elif name == "APPROXIMATE":
         return PlasticityTypeEtoI.APPROXIMATE
-    elif name == "ANTEROGRADE":
-        return PlasticityTypeEtoI.ANTEROGRADE
     else:
         print(name)
         raise ValueError("Unknown PlasticityTypeEtoI")
@@ -276,7 +282,7 @@ def is_plastic_from_str(name: str) -> IsPlastic:
 
 class NumericalIntegration(SimParams):
     def __init__(
-        self, dt: Float, max_dr: Float, max_steps: int, do_abort: bool, n_trials: int
+        self, dt: Float, max_dr: Float, max_steps: int, do_abort: bool, n_trials: int, every_n: int,
     ):
         # super().__init__(dt=dt, max_dr=max_dr, max_steps=max_steps, do_abort=do_abort, n_trials=n_trials)
         super().__init__()
@@ -285,6 +291,7 @@ class NumericalIntegration(SimParams):
         self.max_steps: int = max_steps
         self.do_abort: bool = do_abort
         self.n_trials: int = n_trials
+        self.every_n: int = every_n
 
 
 class Population(SimParams):
@@ -369,7 +376,8 @@ class Plasticity(SimParams):
         bcm: BCMParams = BCMParams(),
         soft_max: bool = False,
         plasticity_type_ei: Union[str, PlasticityTypeItoE] = PlasticityTypeItoE.APPROXIMATE,
-        plasticity_type_ie: Union[str, PlasticityTypeEtoI] = PlasticityTypeEtoI.APPROXIMATE,
+        plasticity_type_ie: Union[str, PlasticityTypeEtoI] = PlasticityTypeEtoI.BACKPROP,
+        compute_gradient_angles: bool = False,
     ):
         super().__init__()
         self.rho0: Float = rho0
@@ -389,6 +397,7 @@ class Plasticity(SimParams):
             if isinstance(plasticity_type_ei, PlasticityTypeItoE) else plasticity_ei_type_from_str(plasticity_type_ei)
         self.plasticity_type_ie: PlasticityTypeEtoI = plasticity_type_ie \
             if isinstance(plasticity_type_ie, PlasticityTypeEtoI) else plasticity_ie_type_from_str(plasticity_type_ie)
+        self.compute_gradient_angles: bool = compute_gradient_angles
 
 
 class PopulationInput(SimParams):

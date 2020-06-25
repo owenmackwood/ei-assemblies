@@ -1,45 +1,19 @@
-DISABLE_NUMBA = False
-if DISABLE_NUMBA:
-    import os
-    os.environ['NUMBA_DISABLE_JIT'] = '1'
-
-from matplotlib.gridspec import GridSpec
-from simulator.params import ExperimentType, PlasticityTypeItoE, PlasticityTypeEtoI, IsPlastic
-from simulator.params import AllParameters
-
-N_TRIALS = 500
-EVERY_N = N_TRIALS
-
-DEFAULT_PLASTIC = IsPlastic.BOTH
-VARY_PL_TYPE = 1
-
-RUN_EXP = ExperimentType.APPROXIMATE
-
-if RUN_EXP == ExperimentType.GRADIENT:
-    E2I_PLASTICITY = PlasticityTypeEtoI.GRADIENT
-    I2E_PLASTICITY = PlasticityTypeItoE.GRADIENT
-    COMPUTE_GRADIENT_ANGLES = False
-    ETA_E = 1e-3
-    ETA_I = 1e-3
-else:
-    E2I_PLASTICITY = PlasticityTypeEtoI.ANTEROGRADE
-    I2E_PLASTICITY = PlasticityTypeItoE.APPROXIMATE
-    COMPUTE_GRADIENT_ANGLES = True
-    """
-    Looks like 1e-4 is too fast for eta_i when e-to-e connections are present
-    needs to be 1e-5 for the inh synapses to learn in Pyr-to-PV plasticity
-    is knocked out.
-    """
-    ETA_E = 1e-5
-    ETA_I = 1e-5
+from simulator.params import ParamDict, SimResults
+from simulator.runner import run_handler
+from pathlib import Path
+from typing import Optional
 
 PLOT_AFFERENTS = False
 PLOT_WEIGHT_HIST = False
+PLOT_RESP_SIM = False
 ADD_BACKGROUND_NOISE = False
 LOCAL_AFFERENTS = True
 
 
-def run_task(task_info: dict, _taskdir: str, _tempdir: str):
+@run_handler
+def run_simulation(sim_params: ParamDict, _taskdir: Path) -> SimResults:
+    from matplotlib.gridspec import GridSpec
+    from simulator.params import PlasticityTypeItoE, PlasticityTypeEtoI, IsPlastic
     import numpy as np
     from time import time
     from scipy.stats import spearmanr
@@ -59,7 +33,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     t0 = time()
     dtype = AllParameters.float_type
 
-    params = AllParameters(**task_info)
+    params = AllParameters(**sim_params)
     inp = params.inp
     ni = params.numint
     ng = params.ng
@@ -119,8 +93,8 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     recording_re = allocate_aligned((n_e, ni.max_steps), dtype=dtype)
     recording_ri = allocate_aligned((n_i, ni.max_steps), dtype=dtype)
 
-    m_batches = ni.n_trials // EVERY_N
-    assert ni.n_trials % EVERY_N == 0
+    m_batches = ni.n_trials // ni.every_n
+    assert ni.n_trials % ni.every_n == 0
 
     if ni.n_trials:
         correlations_ee = np.empty((n_e, n_e, m_batches+1))
@@ -143,12 +117,12 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     corr = np.corrcoef(flattened)
     correlations_ee[..., 0] = corr
 
-    if COMPUTE_GRADIENT_ANGLES and pl.eta_e > 0:
+    if pl.compute_gradient_angles and pl.eta_e > 0:
         angles_ie = allocate_aligned((inp.n_stimuli ** params.ng.n_d * ni.n_trials), np.NaN, dtype=dtype)
     else:
         angles_ie = None
 
-    if COMPUTE_GRADIENT_ANGLES and pl.eta_i > 0:
+    if pl.compute_gradient_angles and pl.eta_i > 0:
         angles_ei = allocate_aligned((inp.n_stimuli**params.ng.n_d * ni.n_trials), np.NaN, dtype=dtype)
     else:
         angles_ei = None
@@ -181,7 +155,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
 
         for m in range(m_batches):
             print(f"Batch {m+1} of {m_batches}")
-            mu_idx = EVERY_N * (inp.n_stimuli ** ng.n_d)
+            mu_idx = ni.every_n * (inp.n_stimuli ** ng.n_d)
 
             if False:  # and not converged:
                 import matplotlib.pyplot as plt
@@ -199,14 +173,14 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
                 plt.show()
 
             converged, n_run, ni.max_steps, all_di = train_network(
-                n_trials=EVERY_N, rho0=pl.rho0,
+                n_trials=ni.every_n, rho0=pl.rho0,
                 re=r_e, ri=r_i, sya=sya,
                 eta_e=pl.eta_e, eta_i=pl.eta_i,
                 wie_decay=pl.wie_decay, wei_decay=pl.wei_decay,
                 plasticity_type_ie=pl.plasticity_type_ie, plasticity_type_ei=pl.plasticity_type_ei,
                 bp_weights=pl.bp_weights,
                 afferents=aff_arrays.afferents,  bg_input_inh=inp.inh.bg_input,
-                inh_in=inh_in_buffer, trial_t=all_t[m * EVERY_N: (m + 1) * EVERY_N, :],
+                inh_in=inh_in_buffer, trial_t=all_t[m * ni.every_n: (m + 1) * ni.every_n, :],
                 dt_tau_e=dt_tau_e, dt_tau_i=dt_tau_i,
                 dt_bcm_tau_inv=ni.dt * pl.bcm.tau_inv,
                 r_max=params.ng.r_max,
@@ -224,7 +198,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
                 adam_ie=adam_ie, adam_ei=adam_ei,
                 angles_ie=angles_ie[m * mu_idx:(m + 1) * mu_idx] if angles_ie is not None else None,
                 angles_ei=angles_ei[m * mu_idx:(m + 1) * mu_idx] if angles_ei is not None else None,
-                compute_angles=COMPUTE_GRADIENT_ANGLES,
+                compute_angles=pl.compute_gradient_angles,
             )
 
             responses_exc, responses_inh, exc_in, inh_in = estimate_responses(
@@ -289,10 +263,9 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
         rho, p = spearmanr(exc_in[..., k].flatten(), inh_in[..., k].flatten())
         cc[k] = rho
         cp[k] = p if np.isfinite(p) else 0
-    f_cells = 100 * np.nanmean(cp > 1e-3, axis=0)
-    mean_cc = np.nanmean(cc)
-    print(f"Avg correlation between synaptic currents: {mean_cc:.1f}")
-    print(f"Percentage of cells without strong correlation: {f_cells:.1f}")
+
+    print(f"Avg correlation between synaptic currents: {np.nanmean(cc):.1f}")
+    print(f"Percentage of cells without strong correlation: {100 * np.nanmean(cp > 1e-3, axis=0):.1f}")
 
     response_sim_ee = np.zeros((n_e, n_e))
     response_sim = np.zeros((n_e, n_i))
@@ -322,8 +295,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
                 ecj = responses_exc[..., j].flatten()
                 response_sim_ee[i, j] = np.dot(eci, ecj) / (n2_exc[i] * n2_exc[j])
 
-    plot_rs = True
-    if plot_rs:
+    if PLOT_RESP_SIM:
         import matplotlib.pyplot as plt
         fig = plt.figure()
         gs = GridSpec(2, 2)
@@ -363,7 +335,7 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
     print(f"Compute time {t_compute:.1f} min.")
 
     raw_data = dict(
-        converged=np.array([converged]),
+        converged=converged,
         steps_to_converge=all_t,
         max_inh_syn_change=all_di,
         recording_re=recording_re,
@@ -396,101 +368,9 @@ def run_task(task_info: dict, _taskdir: str, _tempdir: str):
         zie=sya.zie,
         stimulus_pref=aff_arrays.stimulus_pref,
         afferents=aff_arrays.afferents,
-        ei_min=np.array([sya.ei_min]),
-        ie_min=np.array([sya.ie_min]),
+        ei_min=sya.ei_min,
+        ie_min=sya.ie_min,
     )
-    results = dict(raw_data=raw_data, computed=computed, sim_state=sim_state)
+    results: SimResults = dict(raw_data=raw_data, computed=computed, sim_state=sim_state)
 
     return results
-
-
-class AssembliesLearn:
-    @staticmethod
-    def _prepare_params() -> AllParameters:
-        from simulator.params import NumericalIntegration, NeuronGroups
-        from simulator.params import Synapses, x2y, Plasticity
-        from simulator.params import Population, PopulationInput, Inputs
-
-        numint = NumericalIntegration(
-            dt=1e-3,
-            max_dr=0.5,
-            max_steps=1500,
-            do_abort=False,
-            n_trials=N_TRIALS,
-        )
-
-        ng = NeuronGroups(
-            n_d=3,
-            r_max=1e3,
-            exc=Population(tau_m=50e-3, n_per_axis=8),
-            inh=Population(tau_m=25e-3, n_per_axis=-1),  # Inh pop size is always n_i == n_e // 8
-        )
-
-        sy = Synapses(
-            w_dist="lognorm",
-            lognorm_sigma=0.65,
-            e2e=x2y(w_total=2.0, p=0.6),
-            e2i=x2y(w_total=5.0, p=0.6),
-            i2i=x2y(w_total=1.0, p=0.6),
-            i2e=x2y(w_total=1.0, p=0.6),
-        )
-
-        pl = Plasticity(
-            rho0=1.0,
-            is_plastic=IsPlastic.BOTH,
-            bp_weights=True,
-            eta_e=ETA_E,
-            eta_i=ETA_I,
-            w_max=10**5,
-            soft_max=False,
-            wei_decay=0.1,
-            wie_decay=0.1,
-            convergence_max=0,
-            convergence_mean=0,
-            plasticity_type_ei=I2E_PLASTICITY, plasticity_type_ie=E2I_PLASTICITY,
-        )
-
-        inp = Inputs(
-            n_stimuli=12,
-            sharp_input=False,
-            regular_pref=True,
-            exc=PopulationInput(bg_input=5.0, peak_stimulus=50.0),
-            inh=PopulationInput(bg_input=5.0),
-            vonmises_kappa=1.0,
-            sharp_wf=0.76,
-        )
-        return AllParameters(numint=numint, ng=ng, sy=sy, pl=pl, inp=inp)
-
-
-    @staticmethod
-    def run(result_path, dir_suffix):
-        from itertools import product
-
-        with AssembliesLearn._prepare_params() as params:
-            all_ranges = []
-            if VARY_PL_TYPE:
-                all_ranges.append(((params.pl.is_plastic, is_plastic) for is_plastic in IsPlastic))
-                all_ranges.append(((params.ng.exc.n_per_axis, n) for n in [4, 8]))
-
-            for param_ranges in product(*all_ranges):
-                temp_params = params.dict()
-                for param, value in param_ranges:
-                    params.modify_value(
-                        temp_params, param, value
-                    )
-                run_task(temp_params, '', '')
-
-
-if __name__ == "__main__":
-    import os
-
-    dir_suffix = f"_{N_TRIALS}trials"
-    if RUN_EXP == ExperimentType.GRADIENT:
-        dir_suffix += "_gradients"
-    else:
-        dir_suffix += "_approx"
-
-    job_info = AssembliesLearn.run(
-        os.path.expanduser("~/experiments"),
-        dir_suffix=dir_suffix,
-    )

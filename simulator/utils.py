@@ -8,7 +8,7 @@ from .params import VectorE, VectorI, ArrayXY
 @njit(cache=False)
 def allocate_aligned(
         shape: Union[int, Iterable[int]],
-        fill_value: np.number = 0,
+        fill_value: Union[np.number, int, float] = 0,
         dtype: Type[np.number] = SimParams.float_type
 ) -> np.ndarray:
     """

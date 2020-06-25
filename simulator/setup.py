@@ -72,7 +72,7 @@ def make_afferents(
 
 
 def afferents_plot(
-        stimulus_pref: StimulusPreference, afferents: Afferents, show=True
+        stimulus_pref: StimulusPreference, afferents: Afferents, show=False
 ) -> None:
     from matplotlib.gridspec import GridSpec
     import matplotlib.pyplot as plt

@@ -16,39 +16,40 @@ class MomentEstimate(NamedTuple):
 
 
 @njit(cache=numba_cache)
-def wie_anterograde_update(
-        delta_vie: ArrayIE,
-        vie: ArrayIE, zie: ArrayIE, wie: ArrayIE,
-        eta_e: Float, wie_decay: Float, alpha_ie: Float,
-        ie_max: Float, ie_total: Float,
+def approximate_update(
+        delta_vxy: ArrayXY,
+        vxy: ArrayXY, zxy: ArrayXY, wxy: ArrayXY,
+        eta: Float, wxy_decay: Float, alpha_xy: Float,
+        xy_max: Float
 ) -> None:
-    # cie = wie.copy()
-    # if not bp_weights:
-    #     cie[...] = np.where(cie > 0, 1, 0)
-    # sum_ie = cie.sum(axis=1)
-    # sum_ie[sum_ie <= 0] = 1
-    # cie /= sum_ie
-    # fp_error = wie @ error
-    #
-    # fp_error[:] *= np.reciprocal(1 + np.exp(-hi))
-    # delta_vie = np.outer(fp_error, re)
-    # delta_vie *= nonlinearity_derivative(vie, alpha_ie, ie_max)
+    if wxy_decay > 0:
+        delta_vxy -= wxy_decay * wxy
+    # delta_vxy *= zxy
+    delta_vxy *= eta
+    vxy += delta_vxy
 
-    # if wie_decay > 0:
-    #     delta_vie -= wie_decay * wie
-    # delta_vie *= zie
-    # vie += eta_e * delta_vie
-    #
-    # nonlinearity(vie, wie, alpha_ie, ie_max)
-    # wie *= zie
-    approximate_update(delta_vie, vie, zie, wie, eta_e, wie_decay, alpha_ie, ie_max)
+    nonlinearity(vxy, wxy, alpha_xy, xy_max)
+    wxy *= zxy
 
-    sum_ie = wie.sum(axis=1)
-    sum_ie[sum_ie <= 0] = 1
-    # wie *= ie_total / sum_ie[:, None]
-    # wie *= ie_total / sum_ie  # This is broken in numba!
-    for j in range(wie.shape[0]):
-        wie[j, :] *= ie_total / sum_ie[j]
+
+@njit(cache=numba_cache)
+def weight_update_adam(
+        grad: ArrayXY,
+        vxy: ArrayXY, zxy: ArrayXY, wxy: ArrayXY,
+        eta: Float, wxy_decay: Float, alpha_xy: Float,
+        wxy_max: Float,
+        adam: MomentEstimate,
+) -> None:
+    if wxy_decay > 0:
+        grad -= wxy_decay * wxy
+    adam.m[...] = adam.b1 * adam.m + (1 - adam.b1) * grad
+    adam.v[...] = adam.b2 * adam.v + (1 - adam.b2) * np.power(grad, 2)
+    m_hat = adam.m / (1 - adam.b1)
+    v_hat = adam.v / (1 - adam.b2)
+    vxy += eta / (np.sqrt(v_hat) + adam.epsilon) * m_hat
+
+    nonlinearity(vxy, wxy, alpha_xy, wxy_max)
+    wxy *= zxy
 
 
 @njit(cache=numba_cache)
@@ -59,7 +60,6 @@ def wie_approximate_gradient(
         ie_max: Float,
 ) -> ArrayIE:
     # cie = wie.copy()
-    # if not bp_weights:
     #     cie[...] = np.where(cie > 0, 1, 0)
     # sum_ie = cie.sum(axis=1)
     # sum_ie[sum_ie <= 0] = 1
@@ -105,43 +105,6 @@ def wei_approximate_gradient(
     delta_vei = np.outer(error, ri)
     delta_vei *= nonlinearity_derivative(vei, alpha_ei, ei_max)
     return delta_vei
-
-
-@njit(cache=numba_cache)
-def approximate_update(
-        delta_vxy: ArrayXY,
-        vxy: ArrayXY, zxy: ArrayXY, wxy: ArrayXY,
-        eta: Float, wxy_decay: Float, alpha_xy: Float,
-        xy_max: Float
-) -> None:
-    if wxy_decay > 0:
-        delta_vxy -= wxy_decay * wxy
-    # delta_vxy *= zxy
-    delta_vxy *= eta
-    vxy += delta_vxy
-
-    nonlinearity(vxy, wxy, alpha_xy, xy_max)
-    wxy *= zxy
-
-
-@njit(cache=numba_cache)
-def weight_update_adam(
-        grad: ArrayXY,
-        vxy: ArrayXY, zxy: ArrayXY, wxy: ArrayXY,
-        eta: Float, wxy_decay: Float, alpha_xy: Float,
-        wxy_max: Float,
-        adam: MomentEstimate,
-) -> None:
-    if wxy_decay > 0:
-        grad -= wxy_decay * wxy
-    adam.m[...] = adam.b1 * adam.m + (1 - adam.b1) * grad
-    adam.v[...] = adam.b2 * adam.v + (1 - adam.b2) * np.power(grad, 2)
-    m_hat = adam.m / (1 - adam.b1)
-    v_hat = adam.v / (1 - adam.b2)
-    vxy += eta / (np.sqrt(v_hat) + adam.epsilon) * m_hat
-
-    nonlinearity(vxy, wxy, alpha_xy, wxy_max)
-    wxy *= zxy
 
 
 @njit(cache=numba_cache)
@@ -199,7 +162,7 @@ def update_weights(
         wie_decay: Float, wei_decay: Float,
         alpha_ie: Float, alpha_ei: Float,
         ie_max: Float, ei_max: Float,
-        bp_weights: bool, ei_min: Float, ie_total: Float,
+        weights_in_error_prop: bool, ei_min: Float, ie_total: Float,
         pl_type_ie: PlasticityTypeEtoI, pl_type_ei: PlasticityTypeItoE,
         adam_ie: Optional[MomentEstimate], adam_ei: Optional[MomentEstimate],
         compute_angles: bool = False,
@@ -214,8 +177,8 @@ def update_weights(
     compute_grad = compute_angles or gradient_plasticity
 
     compute_approx_ie = compute_angles or (eta_e > 0 and
-                                           pl_type_ie in (PlasticityTypeEtoI.ANTEROGRADE,
-                                                          PlasticityTypeEtoI.APPROXIMATE))
+                                           pl_type_ie in (PlasticityTypeEtoI.APPROXIMATE,
+                                                          PlasticityTypeEtoI.BACKPROP))
     compute_approx_ei = compute_angles or (eta_i > 0 and
                                            pl_type_ei in (PlasticityTypeItoE.APPROXIMATE,))
 
@@ -236,7 +199,11 @@ def update_weights(
         )
 
     if compute_approx_ie:
-        propagation_matrix = wei.T if pl_type_ie == PlasticityTypeEtoI.APPROXIMATE else wie
+        if pl_type_ie == PlasticityTypeEtoI.APPROXIMATE:
+            propagation_matrix = wie if weights_in_error_prop else vie
+        else:
+            propagation_matrix = wei.T if weights_in_error_prop else vei.T
+
         approx_ie = wie_approximate_gradient(
             error, re, hi, vie, alpha_ie, propagation_matrix, ie_max
         )
@@ -271,10 +238,7 @@ def update_weights(
             approximate_update(
                 approx_ie, vie, zie, wie, eta_e, wie_decay, alpha_ie, ie_max
             )
-            if pl_type_ie == PlasticityTypeEtoI.ANTEROGRADE:
-                # wie_anterograde_update(
-                #     error, re, hi, vie, zie, wie, eta_e, wie_decay, alpha_ie, ie_max, ie_total
-                # )
+            if pl_type_ie == PlasticityTypeEtoI.APPROXIMATE:
                 sum_ie = wie.sum(axis=1)
                 sum_ie[sum_ie <= 0] = 1
                 # wie *= ie_total / sum_ie[:, None]
