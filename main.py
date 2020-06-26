@@ -10,9 +10,9 @@ from pathlib import Path
 N_TRIALS = 2
 EVERY_N = N_TRIALS
 
-DEFAULT_PLASTIC = IsPlastic.NEITHER
+DEFAULT_PLASTIC = IsPlastic.BOTH
 VARY_PL_TYPE = True
-VARY_N_NEURONS = False
+VARY_N_NEURONS = True
 
 RUN_EXP = ExperimentType.APPROXIMATE
 
@@ -99,9 +99,12 @@ class ExcInhAssemblies:
     @staticmethod
     def run(result_path: Path, dir_suffix: str):
         from itertools import product
+        from simulator.runner import get_curr_results_dir
         from assemblies_learn import run_simulation as learn
         from assemblies_perturb import run_simulation as perturb
         run_task = perturb if RUN_EXP == ExperimentType.PERTURB else learn
+
+        curr_results_dir = get_curr_results_dir(result_path, dir_suffix)
 
         with ExcInhAssemblies._prepare_params() as params:
             all_ranges = []
@@ -110,18 +113,16 @@ class ExcInhAssemblies:
                 all_ranges.append(((params.pl.is_plastic, is_plastic) for is_plastic in IsPlastic))
 
             if VARY_N_NEURONS:
-                all_ranges.append(((params.ng.exc.n_per_axis, n) for n in [2, 4, 8]))
+                all_ranges.append(((params.ng.exc.n_per_axis, n) for n in [4, ]))  # 6, 8
 
             if all_ranges:
                 for param_ranges in product(*all_ranges):
                     temp_params = params.dict()
-                    for param, value in param_ranges:
-                        dir_suffix += params.modify_value(
-                            temp_params, param, value
-                        )
-                    run_task(temp_params, result_path, dir_suffix)
+                    string_reprs = [params.modify_value(temp_params, param, value) for param, value in param_ranges]
+                    file_name_suffix = "~".join(string_reprs)
+                    run_task(temp_params, curr_results_dir, file_name_suffix)
             else:
-                run_task(params.dict(), result_path, dir_suffix)
+                run_task(params.dict(), curr_results_dir, "")
 
 
 if __name__ == "__main__":

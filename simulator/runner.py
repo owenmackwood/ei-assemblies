@@ -1,42 +1,54 @@
-from typing import Callable, List, Dict, Any, AnyStr
+from typing import Callable, List, Dict, Any, AnyStr, Optional
 from pathlib import Path
 import sys
 from .params import ParamDict, SimResults
 
 SimulationRunner = Callable[[ParamDict, Path, List[Any], Dict[AnyStr, Any]], SimResults]
 
+
 def run_handler(run_task: SimulationRunner):
-    def runner(sim_params: ParamDict, task_dir: Path, dir_suffix: str, *args, **kwargs):
+    def runner(sim_params: ParamDict, current_results_dir: Path, file_name_suffix: str, *args, **kwargs):
         import traceback
         import logging
-        import time
+        from typing import IO
         from .data import open_data_file, DataHandler
+        from .params import SimParams
 
         logger = logging.getLogger(__name__)
 
-        task_dir /= f"{time.strftime('%Y-%m-%d-%Hh%Mm%Ss')}{dir_suffix}"
-        if not task_dir.exists():
-            task_dir.mkdir(parents=True, exist_ok=True)
+        if not current_results_dir.exists():
+            current_results_dir.mkdir(parents=True, exist_ok=True)
 
-        result = dict()
-        with TeeNoFile("stdout", result), TeeNoFile("stderr", result):
+        results = dict()
+        with TeeNoFile("stdout", results), TeeNoFile("stderr", results):
             try:
-                result.update(run_task(sim_params, task_dir, *args, **kwargs))
+                results.update(run_task(sim_params, current_results_dir, *args, **kwargs))
             except Exception as e:
                 logger.exception("An exception was thrown during the simulation.")
                 error_msg = repr(e) + "\n"
                 extracted_list = traceback.extract_tb(e.__traceback__)
                 for item in traceback.StackSummary.from_list(extracted_list).format():
                     error_msg += str(item)
-                result.update(error_msg=error_msg)
+                results.update(error_msg=error_msg)
 
-        f: DataHandler
-        with open_data_file(task_dir / "results.h5", "w") as f:
-            f.store_data_root(result)
+        df: DataHandler
+        with open_data_file(current_results_dir / f"results~{file_name_suffix}.h5", "w") as df:
+            df.store_data_root(results)
 
-        return result
+        pf: IO[str]
+        with open(f"{current_results_dir / f'params~{file_name_suffix}.py'!s}", "w") as pf:
+            pf.write(f"params = {{\n{SimParams.to_string(sim_params)}}}")
+
+        return results
 
     return runner
+
+
+def get_curr_results_dir(results_dir: Path, dir_suffix: str):
+    import time
+    start_time = time.strftime('%Y-%m-%d-%Hh%Mm%Ss')
+    return results_dir / (start_time+dir_suffix)
+
 
 class TeeNoFile(object):
     """

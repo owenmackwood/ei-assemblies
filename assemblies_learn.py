@@ -11,7 +11,7 @@ LOCAL_AFFERENTS = True
 
 
 @run_handler
-def run_simulation(sim_params: ParamDict, _taskdir: Path) -> SimResults:
+def run_simulation(sim_params: ParamDict, _experiment_dir: Path) -> SimResults:
     from matplotlib.gridspec import GridSpec
     from simulator.params import PlasticityTypeItoE, PlasticityTypeEtoI, IsPlastic
     import numpy as np

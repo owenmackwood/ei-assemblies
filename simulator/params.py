@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 import inspect, warnings
-from typing import Tuple, Dict, Union, ClassVar, NewType, List
+from typing import Tuple, Dict, Union, ClassVar, NewType, List, Optional
 from enum import Enum, IntEnum
 
 numba_cache = True
@@ -135,13 +135,53 @@ class SimParams:
 
         del frame
 
+    @staticmethod
+    def leaf_string_repr(value: LeafTypes, for_file: bool = False) -> str:
+        from collections.abc import Iterable
+        import sys
+
+        if isinstance(value, (Enum, IntEnum)):
+            return f"{value}" if for_file else f"={value.name}"
+        elif isinstance(value, np.floating):
+            if np.isfinite(value):
+                return f"{value:.6e}" if for_file else f"={value:.3e}"
+            else:
+                return f"np.{value:.6e}" if for_file else f"={value:.3e}"
+        elif isinstance(value, str):
+            return f"'{value}'"
+        elif isinstance(value, Iterable):
+            if for_file:
+                if isinstance(value, np.ndarray):
+                    # formatter = {"float": lambda x: f"{x:.6e}"}  # Can be used as argument to print options
+                    with np.printoptions(threshold=sys.maxsize, nanstr="np.NaN", infstr="np.inf", linewidth=120):
+                        return np.array2string(value, separator=", ")
+                else:
+                    return f"{value}"
+            else:
+                assert isinstance(value, (list, np.ndarray))
+                return f"=ARRAY" if len(value) > 1 else f"={value[0]}"
+        else:
+            return f"{value}" if for_file else f"={value}"
+
+    def path_string_repr(
+            self, leaf: Union[Leaf, LeafTypes], value: Optional[LeafTypes] = None, path_to: ParamPath = None
+    ) -> str:
+        if path_to is None:
+            path_to = self._path_to(leaf)
+
+        string_repr = ".".join(path_to)
+
+        if value is not None:
+            string_repr += self.leaf_string_repr(value)
+
+        return string_repr
+
     def modify_value(self, params: ParamDict, leaf: Union[Leaf, LeafTypes], value: LeafTypes) -> str:
         path_to = self._path_to(leaf)
-        path_string = ".".join(path_to) + f"{value}"
         for name in path_to[:-1]:
             params = params[name]
         params[path_to[-1]] = value
-        return path_string
+        return self.path_string_repr(leaf, value, path_to)
 
     def include_range(self, param_ranges: ParamRanges,
                       leaf: Union[Leaf, LeafTypes], values: ParamArray) -> None:
@@ -192,6 +232,19 @@ class SimParams:
             else:
                 raise MissingContext('SimParams.dict must be called inside of a `with` block.')
         return dict_representation
+
+    @staticmethod
+    def to_string(params: ParamDict, leading_tabs: int = 0):
+        tab = 4*' '
+        ps = ""  #f"{tab*leading_tabs}{{\n"
+        tabs = tab * (leading_tabs+1)
+        for k, v in params.items():
+            if isinstance(v, dict):
+                ps += f"{tabs}'{k}': {{\n{SimParams.to_string(v, leading_tabs+1)}{tabs}}},\n"
+            else:
+                ps += f"{tabs}'{k}': {SimParams.leaf_string_repr(v, True)},\n"
+        # ps += f"{tab*leading_tabs}}},\n"
+        return ps
 
 
 class ExperimentType(Enum):
@@ -454,3 +507,4 @@ class AllParameters(SimParams):
         self.sy: Synapses = Synapses(**sy) if isinstance(sy, dict) else sy
         self.pl: Plasticity = Plasticity(**pl) if isinstance(pl, dict) else pl
         self.inp: Inputs = Inputs(**inp) if isinstance(inp, dict) else inp
+        self.test: np.ndarray = np.random.normal(0., 1., size=(50, 25))
