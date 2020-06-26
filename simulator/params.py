@@ -236,14 +236,13 @@ class SimParams:
     @staticmethod
     def to_string(params: ParamDict, leading_tabs: int = 0):
         tab = 4*' '
-        ps = ""  #f"{tab*leading_tabs}{{\n"
+        ps = ""
         tabs = tab * (leading_tabs+1)
         for k, v in params.items():
             if isinstance(v, dict):
                 ps += f"{tabs}'{k}': {{\n{SimParams.to_string(v, leading_tabs+1)}{tabs}}},\n"
             else:
                 ps += f"{tabs}'{k}': {SimParams.leaf_string_repr(v, True)},\n"
-        # ps += f"{tab*leading_tabs}}},\n"
         return ps
 
 
@@ -507,4 +506,3 @@ class AllParameters(SimParams):
         self.sy: Synapses = Synapses(**sy) if isinstance(sy, dict) else sy
         self.pl: Plasticity = Plasticity(**pl) if isinstance(pl, dict) else pl
         self.inp: Inputs = Inputs(**inp) if isinstance(inp, dict) else inp
-        self.test: np.ndarray = np.random.normal(0., 1., size=(50, 25))

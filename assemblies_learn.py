@@ -1,7 +1,6 @@
 from simulator.params import ParamDict, SimResults
 from simulator.runner import run_handler
 from pathlib import Path
-from typing import Optional
 
 PLOT_AFFERENTS = False
 PLOT_WEIGHT_HIST = False
@@ -11,19 +10,18 @@ LOCAL_AFFERENTS = True
 
 
 @run_handler
-def run_simulation(sim_params: ParamDict, _experiment_dir: Path) -> SimResults:
+def run_simulation(sim_params: ParamDict, _current_results_dir: Path) -> SimResults:
     from matplotlib.gridspec import GridSpec
     from simulator.params import PlasticityTypeItoE, PlasticityTypeEtoI, IsPlastic
     import numpy as np
     from time import time
-    from scipy.stats import spearmanr
-    from numpy.linalg import norm
     from simulator.utils import allocate_aligned
     from simulator.rates import train_network, estimate_responses
     from simulator.setup import make_afferents, afferents_plot, make_synapses
     from simulator.params import AllParameters
     from simulator.params import VectorE, VectorI, ArrayIE, ArrayEE, ArrayEI
     from simulator.plasticity import MomentEstimate
+    from simulator.measure import orientation_selectivity_index, compute_syn_current_spearmanr, compute_response_similarity
     # import mkl
     # if on_cluster:
     #     mkl.set_num_threads(1)
@@ -242,58 +240,12 @@ def run_simulation(sim_params: ParamDict, _experiment_dir: Path) -> SimResults:
         ax.hist(np.squeeze(recording_ri[:, m]), bins=100)
         plt.show()
 
-    osi_e = np.empty((n_e,), dtype=dtype)
-    osi_i = np.empty((n_i,), dtype=dtype)
-    compute_osi = 1
-    if compute_osi:
-        sin_d = np.sin(aff_arrays.locations)
-        cos_d = np.cos(aff_arrays.locations)
-        for response, osi in zip((responses_exc, responses_inh), (osi_e, osi_i)):
-            for n in range(osi.size):
-                max_ij = np.argmax(response[..., n].mean(axis=-1))
-                max_ij = np.unravel_index(max_ij, (inp.n_stimuli, inp.n_stimuli))
-                tcs = response[max_ij[0], max_ij[1], :, n]
-                osi_l = np.sum(tcs * sin_d, axis=-1) ** 2
-                osi_r = np.sum(tcs * cos_d, axis=-1) ** 2
-                osi[n] = np.sqrt(osi_l + osi_r) / np.sum(tcs, axis=-1)
-
-    cc = np.ones((n_e,))
-    cp = np.ones((n_e,))
-    for k in range(n_e):
-        rho, p = spearmanr(exc_in[..., k].flatten(), inh_in[..., k].flatten())
-        cc[k] = rho
-        cp[k] = p if np.isfinite(p) else 0
-
+    osi_e, osi_i = orientation_selectivity_index(inp, responses_exc, responses_inh, aff_arrays)
+    response_sim_ee = compute_response_similarity(responses_exc, responses_exc)
+    response_sim = compute_response_similarity(responses_exc, responses_inh)
+    cc, cp = compute_syn_current_spearmanr(exc_in, inh_in)
     print(f"Avg correlation between synaptic currents: {np.nanmean(cc):.1f}")
     print(f"Percentage of cells without strong correlation: {100 * np.nanmean(cp > 1e-3, axis=0):.1f}")
-
-    response_sim_ee = np.zeros((n_e, n_e))
-    response_sim = np.zeros((n_e, n_i))
-    compute_similarity = 1
-    if compute_similarity:
-        n2_exc = np.empty(n_e)
-        for i in range(n_e):
-            eci = responses_exc[..., i].flatten()
-            n2_exc[i] = norm(eci, 2)
-            if np.isclose(n2_exc[i], 0.0):
-                print(f"Exc. {i} had no response")
-
-        n2_inh = np.empty(n_i)
-        for j in range(n_i):
-            icj = responses_inh[..., j].flatten()
-            n2_inh[j] = norm(icj, 2)
-            if np.isclose(n2_inh[j], 0.0):
-                print(f"Inh. {j} had no response")
-
-        for i in range(n_e):
-            eci = responses_exc[..., i].flatten()
-            for j in range(n_i):
-                icj = responses_inh[..., j].flatten()
-                rs = np.dot(eci, icj) / (n2_exc[i] * n2_inh[j])
-                response_sim[i, j] = rs
-            for j in range(n_e):
-                ecj = responses_exc[..., j].flatten()
-                response_sim_ee[i, j] = np.dot(eci, ecj) / (n2_exc[i] * n2_exc[j])
 
     if PLOT_RESP_SIM:
         import matplotlib.pyplot as plt

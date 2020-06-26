@@ -1,4 +1,4 @@
-from typing import Callable, List, Dict, Any, AnyStr, Optional
+from typing import Callable, List, Dict, Any, AnyStr
 from pathlib import Path
 import sys
 from .params import ParamDict, SimResults
@@ -44,7 +44,7 @@ def run_handler(run_task: SimulationRunner):
     return runner
 
 
-def get_curr_results_dir(results_dir: Path, dir_suffix: str):
+def get_curr_results_dir(results_dir: Path, dir_suffix: str) -> Path:
     import time
     start_time = time.strftime('%Y-%m-%d-%Hh%Mm%Ss')
     return results_dir / (start_time+dir_suffix)
