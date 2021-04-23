@@ -1,4 +1,5 @@
 DISABLE_NUMBA = False
+# Disabling Numba is useful for debugging purposes
 if DISABLE_NUMBA:
     import os
     os.environ['NUMBA_DISABLE_JIT'] = '1'
@@ -7,6 +8,7 @@ from simulator.params import ExperimentType, PlasticityTypeItoE, PlasticityTypeE
 from simulator.params import AllParameters
 from pathlib import Path
 
+RESULT_PATH = Path.home() / "experiments" / "ei-assemblies"
 RUN_EXP = ExperimentType.APPROXIMATE
 
 if RUN_EXP == ExperimentType.GRADIENT:
@@ -24,13 +26,14 @@ elif RUN_EXP == ExperimentType.APPROXIMATE:
 else:
     assert RUN_EXP == ExperimentType.PERTURB
     COMPUTE_GRADIENT_ANGLES = False
+    E2I_PLASTICITY = PlasticityTypeEtoI.APPROXIMATE
+    I2E_PLASTICITY = PlasticityTypeItoE.APPROXIMATE
     ETA_E = 0e0
     ETA_I = 0e0
-    raise NotImplementedError("No implementation of this experiment yet.")
 
 
 N_TRIALS = 500
-EVERY_N = N_TRIALS
+ESTIMATE_RESPONSE_EVERY_N = N_TRIALS  # Must divide evenly into N_TRIALS
 
 
 def prepare_params() -> AllParameters:
@@ -44,7 +47,7 @@ def prepare_params() -> AllParameters:
         max_steps=1500,
         do_abort=False,
         n_trials=N_TRIALS,
-        every_n=EVERY_N,
+        every_n=ESTIMATE_RESPONSE_EVERY_N,
     )
 
     ng = NeuronGroups(
@@ -91,17 +94,29 @@ def prepare_params() -> AllParameters:
     return AllParameters(numint=numint, ng=ng, sy=sy, pl=pl, inp=inp)
 
 
-def run(result_path: Path, dir_suffix: str) -> None:
+def run() -> None:
     from itertools import product
-    from simulator.runner import get_curr_results_dir
+    from simulator.runner import get_curr_results_path, user_select_resume_path
     from assemblies_learn import run_simulation as learn
     from assemblies_perturb import run_simulation as perturb
     run_task = perturb if RUN_EXP == ExperimentType.PERTURB else learn
 
     vary_pl_type = True
     vary_n_neurons = False
+    resume_path = None
+    dir_suffix = f"_{N_TRIALS}trials"
+    if RUN_EXP == ExperimentType.GRADIENT:
+        dir_suffix += "_gradients"
+    elif RUN_EXP == ExperimentType.APPROXIMATE:
+        dir_suffix += "_approx"
+    else:
+        dir_suffix += "_perturb"
+        print(
+            "To run a perturbation experiment, you must select a pre-trained network:"
+        )
+        resume_path = user_select_resume_path(RESULT_PATH)
 
-    curr_results_dir = get_curr_results_dir(result_path, dir_suffix)
+    curr_results_path = get_curr_results_path(RESULT_PATH, dir_suffix)
 
     with prepare_params() as params:
         all_ranges = []
@@ -110,29 +125,19 @@ def run(result_path: Path, dir_suffix: str) -> None:
             all_ranges.append(((params.pl.is_plastic, is_plastic) for is_plastic in IsPlastic))
 
         if vary_n_neurons:
-            all_ranges.append(((params.ng.exc.n_per_axis, n) for n in [4, ]))  # 6, 8
+            all_ranges.append(((params.ng.exc.n_per_axis, n) for n in [4, 6, 8]))
 
         if all_ranges:
             for param_ranges in product(*all_ranges):
+                param_str = " ".join([f"{params.path_string_repr(param)}={value}" for param, value in param_ranges])
+                print(f"Starting simulation for {param_str}")
                 temp_params = params.dict()
                 string_reprs = [params.modify_value(temp_params, param, value) for param, value in param_ranges]
                 file_name_suffix = "~".join(string_reprs)
-                run_task(temp_params, curr_results_dir, file_name_suffix)
+                run_task(temp_params, curr_results_path, file_name_suffix, resume_path)
         else:
-            run_task(params.dict(), curr_results_dir, "")
+            run_task(params.dict(), curr_results_path, "", resume_path)
 
 
 if __name__ == "__main__":
-
-    dir_suffix = f"_{N_TRIALS}trials"
-    if RUN_EXP == ExperimentType.GRADIENT:
-        dir_suffix += "_gradients"
-    elif RUN_EXP == ExperimentType.APPROXIMATE:
-        dir_suffix += "_approx"
-    else:
-        dir_suffix += "_perturb"
-
-    run(
-        result_path=Path.home() / "experiments" / "ei-test",
-        dir_suffix=dir_suffix,
-    )
+    run()

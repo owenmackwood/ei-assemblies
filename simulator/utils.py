@@ -1,6 +1,6 @@
 import numpy as np
 from numba import njit
-from typing import Union, Iterable, Type
+from typing import Union, Iterable
 from .params import SimParams, Float, numba_cache
 from .params import VectorE, VectorI, ArrayXY
 
@@ -9,7 +9,7 @@ from .params import VectorE, VectorI, ArrayXY
 def allocate_aligned(
         shape: Union[int, Iterable[int]],
         fill_value: Union[np.number, int, float] = 0,
-        dtype: Type[np.number] = SimParams.float_type
+        dtype: np.dtype = SimParams.float_type
 ) -> np.ndarray:
     """
 

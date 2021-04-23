@@ -4,9 +4,8 @@ from pathlib import Path
 
 PLOT_AFFERENTS = False
 PLOT_WEIGHT_HIST = False
-PLOT_RESP_SIM = False
-ADD_BACKGROUND_NOISE = False
-LOCAL_AFFERENTS = True
+PLOT_RESP_SIMILARITY = False
+DIAGNOSTIC_RATE_PLOT = False
 
 
 @run_handler
@@ -17,16 +16,11 @@ def run_simulation(sim_params: ParamDict, _current_results_dir: Path) -> SimResu
     from time import time
     from simulator.utils import allocate_aligned
     from simulator.rates import train_network, estimate_responses
-    from simulator.setup import make_afferents, afferents_plot, make_synapses
+    from simulator.setup import make_afferents, make_synapses
     from simulator.params import AllParameters
     from simulator.params import VectorE, VectorI, ArrayIE, ArrayEE, ArrayEI
     from simulator.plasticity import MomentEstimate
     from simulator.measure import orientation_selectivity_index, compute_syn_current_spearmanr, compute_response_similarity
-    # import mkl
-    # if on_cluster:
-    #     mkl.set_num_threads(1)
-    # else:
-    #     mkl.set_num_threads(4)
 
     t0 = time()
     dtype = AllParameters.float_type
@@ -55,18 +49,6 @@ def run_simulation(sim_params: ParamDict, _current_results_dir: Path) -> SimResu
     aff_arrays = make_afferents(ng.n_d, ng.exc.n_per_axis, inp.n_stimuli, inp.exc.bg_input,
                                 inp.exc.peak_stimulus, inp.vonmises_kappa, PLOT_AFFERENTS)
     if params.sy.e2e.w_total > 0:
-        if not LOCAL_AFFERENTS:
-            for i in range(n_e):
-                flat_afferents = aff_arrays.afferents[..., i].flatten()
-                np.random.shuffle(flat_afferents)
-                aff_arrays.afferents[..., i] = flat_afferents.reshape(aff_arrays.afferents.shape[:-1])
-            if PLOT_AFFERENTS:
-                afferents_plot(aff_arrays.stimulus_pref, aff_arrays.afferents)
-
-        # if ADD_BACKGROUND_NOISE:
-        #     aff_arrays.afferents += np.random.uniform(0, inp.exc.bg_input, size=aff_arrays.afferents.shape)
-
-        # corr_kappa = inp.vonmises_kappa
         corr_kappa = inp.vonmises_kappa / 4
         tmp_arrays = make_afferents(ng.n_d, ng.exc.n_per_axis, inp.n_stimuli, inp.exc.bg_input,
                                     inp.exc.peak_stimulus, corr_kappa, PLOT_AFFERENTS)
@@ -91,11 +73,11 @@ def run_simulation(sim_params: ParamDict, _current_results_dir: Path) -> SimResu
     recording_re = allocate_aligned((n_e, ni.max_steps), dtype=dtype)
     recording_ri = allocate_aligned((n_i, ni.max_steps), dtype=dtype)
 
-    m_batches = ni.n_trials // ni.every_n
+    m_phases = ni.n_trials // ni.every_n
     assert ni.n_trials % ni.every_n == 0
 
     if ni.n_trials:
-        correlations_ee = np.empty((n_e, n_e, m_batches+1))
+        correlations_ee = np.empty((n_e, n_e, m_phases+1))
     else:
         correlations_ee = np.empty((n_e, n_e, 1))
 
@@ -151,11 +133,11 @@ def run_simulation(sim_params: ParamDict, _current_results_dir: Path) -> SimResu
         last_n = 10
         inh_in_buffer = allocate_aligned((inp.n_stimuli, inp.n_stimuli, inp.n_stimuli, n_e, last_n), dtype=dtype)
 
-        for m in range(m_batches):
-            print(f"Batch {m+1} of {m_batches}")
+        for m in range(m_phases):
+            print(f"Phase {m+1} of {m_phases}")
             mu_idx = ni.every_n * (inp.n_stimuli ** ng.n_d)
 
-            if False:  # and not converged:
+            if DIAGNOSTIC_RATE_PLOT:  # and not converged:
                 import matplotlib.pyplot as plt
                 fig = plt.figure()
                 gs = GridSpec(2, 2)
@@ -225,7 +207,7 @@ def run_simulation(sim_params: ParamDict, _current_results_dir: Path) -> SimResu
     if not np.isfinite(sya.wei).all():
         print("wei had NaN or inf values")
 
-    if False:  # and not converged:
+    if DIAGNOSTIC_RATE_PLOT:  # and not converged:
         import matplotlib.pyplot as plt
         fig = plt.figure()
         gs = GridSpec(2, 2)
@@ -247,7 +229,7 @@ def run_simulation(sim_params: ParamDict, _current_results_dir: Path) -> SimResu
     print(f"Avg correlation between synaptic currents: {np.nanmean(cc):.1f}")
     print(f"Percentage of cells without strong correlation: {100 * np.nanmean(cp > 1e-3, axis=0):.1f}")
 
-    if PLOT_RESP_SIM:
+    if PLOT_RESP_SIMILARITY:
         import matplotlib.pyplot as plt
         fig = plt.figure()
         gs = GridSpec(2, 2)
