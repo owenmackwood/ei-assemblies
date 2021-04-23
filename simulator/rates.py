@@ -66,7 +66,6 @@ def compute_steady_state(
     return converged, t, he, hi
 
 
-
 @njit(cache=numba_cache)
 def train_network(
         n_trials: int,
@@ -254,7 +253,7 @@ def plasticity_converged(
     # di = inh_mean[..., None] - inh_in
     # inh_diff[...] = di.sum(axis=-1)
     di_max: Float = np.max(inh_diff)
-    di_mu: Float =  np.mean(inh_diff)
+    di_mu: Float = np.mean(inh_diff)
     return di_max, di_mu
 
 

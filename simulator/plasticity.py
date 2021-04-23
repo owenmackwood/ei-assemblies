@@ -72,30 +72,6 @@ def wie_approximate_gradient(
     return delta_vie
 
 
-"""Commented this out because potentially will no longer use it, but wanted to keep it
-just in case something breaks and I need to remember that for the backprop rule, I was
-normalising the backprop matrix. Could be this problem is fixed due to normalising the weights
-after each update in the anterograde version."""
-# @njit(cache=numba_cache)
-# def wie_approximate_gradient(
-#         error, re: VectorE, hi: VectorI,
-#         vie: ArrayIE, alpha_ie: Float,
-#         wei: ArrayEI, bp_weights: bool,
-#         ei_min: Float, ie_max: Float
-# ) -> ArrayIE:
-#     cei = wei.copy()
-#     if not bp_weights:
-#         cei[...] = np.where(cei > ei_min, 1, 0)
-#     sum_ei = cei.sum(axis=0)
-#     cei /= sum_ei
-#
-#     bp_error = error @ cei
-#     bp_error[:] *= np.reciprocal(1 + np.exp(-hi))
-#     delta_vie = np.outer(bp_error, re)
-#     delta_vie *= nonlinearity_derivative(vie, alpha_ie, ie_max)
-#     return delta_vie
-
-
 @njit(cache=numba_cache)
 def wei_approximate_gradient(
         error, ri: VectorI,

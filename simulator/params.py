@@ -35,6 +35,7 @@ ParamRanges = Dict[str, Union["ParamRanges", ParamArray]]
 
 SimResults = Dict[str, Union["SimResults", LeafTypes]]
 
+
 class Leaf:
     """
     Wrapper class for the types stored in a SimParams structure.

@@ -85,7 +85,7 @@ def user_select_resume_path(get_from_dir) -> Path:
 
     for subdir in Path(get_from_dir).iterdir():
         if subdir.is_dir():
-            if any(sdp.is_file() and sdp.suffix == ".h5"  for sdp in subdir.iterdir()):
+            if any(sdp.is_file() and sdp.suffix == ".h5" for sdp in subdir.iterdir()):
                 all_exps.append((subdir, subdir.stem))
 
     all_exps = sorted(all_exps, key=itemgetter(1))

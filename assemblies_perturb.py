@@ -5,8 +5,6 @@ from simulator.runner import run_handler
 from pathlib import Path
 
 N_PERTURBED = 90
-P_MIN = 10.
-P_MAX = 10.
 
 
 @run_handler
@@ -19,7 +17,10 @@ def run_simulation(sim_params: ParamDict, _current_results_dir: Path, resume_dat
     from simulator.rates import compute_steady_state
 
     dtype = AllParameters.float_type
-    perturbations = np.linspace(P_MIN, P_MAX, 1, dtype=dtype, endpoint=True)
+
+    p_min = 10.
+    p_max = 10.
+    perturbations = np.linspace(p_min, p_max, 1, dtype=dtype, endpoint=True)
 
     params = AllParameters(**sim_params)
     inp = params.inp

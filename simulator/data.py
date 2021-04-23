@@ -43,7 +43,7 @@ class DataHandler:
         return all(isinstance(k, (int, np.integer)) and isinstance(v, Iterable)
                    for k, v in data.items())
 
-    def store_data(self, group: tables.Group, all_data: SimResults, overwrite = False) -> None:
+    def store_data(self, group: tables.Group, all_data: SimResults, overwrite=False) -> None:
 
         # If overwrite is enabled, we want to provide a list
         # of keys that should be deleted. This means any key
@@ -236,21 +236,6 @@ class DataHandler:
         shape = group.shape.read()
         arr = csr_matrix((data, indices, indptr), shape=shape)
         return arr
-
-
-# class DataHandlerContext:
-#     def __init__(self, filename, mode):
-#         self.filename = filename
-#         self.handler = None
-#         self.mode = mode
-#
-#     def __enter__(self) -> DataHandler:
-#         h5f = tables.open_file(self.filename, mode=self.mode)
-#         self.handler = DataHandler(h5f, print, print)
-#         return self.handler
-#
-#     def __exit__(self, exc_type, exc_val, exc_tb):
-#         self.handler.h5f.close()
 
 
 @contextmanager
