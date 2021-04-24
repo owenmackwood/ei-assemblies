@@ -253,6 +253,18 @@ class ExperimentType(Enum):
     PERTURB = 3
 
 
+def experiment_type_from_str(name: str) -> ExperimentType:
+    if name == "GRADIENT":
+        return ExperimentType.GRADIENT
+    elif name == "APPROXIMATE":
+        return ExperimentType.APPROXIMATE
+    elif name == "PERTURB":
+        return ExperimentType.PERTURB
+    else:
+        print(name)
+        raise ValueError("Unknown ExperimentType")
+
+
 class PlasticityTypeEtoI(Enum):
     GRADIENT = 1
     BACKPROP = 2

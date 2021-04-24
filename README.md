@@ -11,11 +11,14 @@ be sent to the corresponding author, Henning Sprekeler.
 ## How to use the simulator
 
 To use this simulator, download or clone this repository. On the command line, go to the root directory of this 
-repository and run `python main.py`. This will generate the data used for Figures 1-3 of the paper (and many of
-the figure supplements). To generate the data for Figure 4, open `main.py` in your preferred editor, and change
-the value of `RUN_EXP` to `ExperimentType.PERTURB`. It will prompt you to select the network you trained in the
-previous step (which by default is stored in your home directory at `experiments/ei-assemblies`). Likewise, to
-simulate networks with the full gradient rules, change `RUN_EXP` to `ExperimentType.GRADIENT`. 
+repository and run `python main.py -e APPROXIMATE`. This will generate the data used for Figures 1-3 of the paper 
+(and many of the figure supplements). To generate the data for Figure 4, run `python main.py -e PERTURB`.  It will 
+prompt you to select the network you trained in the previous step (which by default is stored in your home directory at 
+`experiments/ei-assemblies`). Likewise, to simulate networks with the full gradient rules, run `python main.py -e GRADIENT`.
+
+To change the directory in which results are stored, you can provide the argument `-p <PATH>`. To change the
+number of trials the network is trained for (in both the `APPROXIMATE` and `GRADIENT` cases), provide the
+argument `-n <NUMTRIALS>` with any integer value.
 
 ## Data storage format
 

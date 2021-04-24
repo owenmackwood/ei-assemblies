@@ -5,38 +5,19 @@ if DISABLE_NUMBA:
     os.environ['NUMBA_DISABLE_JIT'] = '1'
 
 from simulator.params import ExperimentType, PlasticityTypeItoE, PlasticityTypeEtoI, IsPlastic
-from simulator.params import AllParameters
+from simulator.params import AllParameters, experiment_type_from_str
 from pathlib import Path
-
-RESULT_PATH = Path.home() / "experiments" / "ei-assemblies"
-RUN_EXP = ExperimentType.APPROXIMATE
-
-if RUN_EXP == ExperimentType.GRADIENT:
-    E2I_PLASTICITY = PlasticityTypeEtoI.GRADIENT
-    I2E_PLASTICITY = PlasticityTypeItoE.GRADIENT
-    COMPUTE_GRADIENT_ANGLES = False
-    ETA_E = 1e-3
-    ETA_I = 1e-3
-elif RUN_EXP == ExperimentType.APPROXIMATE:
-    E2I_PLASTICITY = PlasticityTypeEtoI.APPROXIMATE
-    I2E_PLASTICITY = PlasticityTypeItoE.APPROXIMATE
-    COMPUTE_GRADIENT_ANGLES = True
-    ETA_E = 1e-5
-    ETA_I = 1e-5
-else:
-    assert RUN_EXP == ExperimentType.PERTURB
-    COMPUTE_GRADIENT_ANGLES = False
-    E2I_PLASTICITY = PlasticityTypeEtoI.APPROXIMATE
-    I2E_PLASTICITY = PlasticityTypeItoE.APPROXIMATE
-    ETA_E = 0e0
-    ETA_I = 0e0
+from typing import Tuple
 
 
-N_TRIALS = 500
-ESTIMATE_RESPONSE_EVERY_N = N_TRIALS  # Must divide evenly into N_TRIALS
-
-
-def prepare_params() -> AllParameters:
+def prepare_params(
+    n_trials: int,
+    e2i_plasticity: PlasticityTypeEtoI,
+    i2e_plasticity: PlasticityTypeItoE,
+    eta_e: float,
+    eta_i: float,
+    compute_gradient_angles: bool,
+) -> AllParameters:
     from simulator.params import NumericalIntegration, NeuronGroups
     from simulator.params import Synapses, x2y, Plasticity
     from simulator.params import Population, PopulationInput, Inputs
@@ -46,8 +27,8 @@ def prepare_params() -> AllParameters:
         max_dr=0.5,
         max_steps=1500,
         do_abort=False,
-        n_trials=N_TRIALS,
-        every_n=ESTIMATE_RESPONSE_EVERY_N,
+        n_trials=n_trials,
+        every_n=n_trials // 1,  # Estimate the network response every_n trials. Must divide evenly into n_trials
     )
 
     ng = NeuronGroups(
@@ -70,16 +51,16 @@ def prepare_params() -> AllParameters:
         rho0=1.0,
         is_plastic=IsPlastic.BOTH,
         bp_weights=True,
-        eta_e=ETA_E,
-        eta_i=ETA_I,
+        eta_e=eta_e,
+        eta_i=eta_i,
         w_max=10**5,
         soft_max=False,
         wei_decay=0.1,
         wie_decay=0.1,
         convergence_max=0,
         convergence_mean=0,
-        plasticity_type_ei=I2E_PLASTICITY, plasticity_type_ie=E2I_PLASTICITY,
-        compute_gradient_angles=COMPUTE_GRADIENT_ANGLES,
+        plasticity_type_ei=i2e_plasticity, plasticity_type_ie=e2i_plasticity,
+        compute_gradient_angles=compute_gradient_angles,
     )
 
     inp = Inputs(
@@ -94,31 +75,54 @@ def prepare_params() -> AllParameters:
     return AllParameters(numint=numint, ng=ng, sy=sy, pl=pl, inp=inp)
 
 
-def run() -> None:
+def run(run_exp: ExperimentType, result_path: Path, n_trials: int) -> None:
     from itertools import product
     from simulator.runner import get_curr_results_path, user_select_resume_path
     from assemblies_learn import run_simulation as learn
     from assemblies_perturb import run_simulation as perturb
-    run_task = perturb if RUN_EXP == ExperimentType.PERTURB else learn
+    run_task = perturb if run_exp == ExperimentType.PERTURB else learn
 
     vary_pl_type = True
     vary_n_neurons = False
     resume_path = None
-    dir_suffix = f"_{N_TRIALS}trials"
-    if RUN_EXP == ExperimentType.GRADIENT:
+    dir_suffix = f"_{n_trials}trials"
+    if run_exp == ExperimentType.GRADIENT:
         dir_suffix += "_gradients"
-    elif RUN_EXP == ExperimentType.APPROXIMATE:
+        e2i_plasticity = PlasticityTypeEtoI.GRADIENT
+        i2e_plasticity = PlasticityTypeItoE.GRADIENT
+        compute_gradient_angles = False
+        eta_e = 1e-3
+        eta_i = 1e-3
+    elif run_exp == ExperimentType.APPROXIMATE:
         dir_suffix += "_approx"
+        e2i_plasticity = PlasticityTypeEtoI.APPROXIMATE
+        i2e_plasticity = PlasticityTypeItoE.APPROXIMATE
+        compute_gradient_angles = True
+        eta_e = 1e-5
+        eta_i = 1e-5
     else:
         dir_suffix += "_perturb"
+        assert run_exp == ExperimentType.PERTURB
+        compute_gradient_angles = False
+        e2i_plasticity = PlasticityTypeEtoI.APPROXIMATE
+        i2e_plasticity = PlasticityTypeItoE.APPROXIMATE
+        eta_e = 0e0
+        eta_i = 0e0
         print(
             "To run a perturbation experiment, you must select a pre-trained network:"
         )
-        resume_path = user_select_resume_path(RESULT_PATH)
+        resume_path = user_select_resume_path(result_path)
 
-    curr_results_path = get_curr_results_path(RESULT_PATH, dir_suffix)
+    curr_results_path = get_curr_results_path(result_path, dir_suffix)
 
-    with prepare_params() as params:
+    with prepare_params(
+        n_trials,
+        e2i_plasticity,
+        i2e_plasticity,
+        eta_e,
+        eta_i,
+        compute_gradient_angles,
+    ) as params:
         all_ranges = []
 
         if vary_pl_type:
@@ -139,5 +143,39 @@ def run() -> None:
             run_task(params.dict(), curr_results_path, "", resume_path)
 
 
+def parse_arguments() -> Tuple[ExperimentType, Path, int]:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-e", "--experiment",
+        help="The experiment to run. APPROXIMATE must be run before PERTURB.",
+        choices=[e.name for e in ExperimentType],
+        type=str,
+        default=ExperimentType.APPROXIMATE.name
+    )
+    parser.add_argument(
+        "-p", "--path",
+        help="Path to the results directory.",
+        type=Path,
+        default=Path.home() / "experiments" / "ei-assemblies"
+    )
+    parser.add_argument(
+        "-n", "--numtrials",
+        help="Number to trials for training.",
+        type=int,
+        default=500
+    )
+    args = parser.parse_args()
+
+    run_exp = experiment_type_from_str(args.experiment)
+    result_path = args.path
+    n_trials = int(args.numtrials)
+    return run_exp, result_path, n_trials
+
+
+_run_exp, _result_path, _n_trials = parse_arguments()
+
 if __name__ == "__main__":
-    run()
+    print(f"Running {_run_exp}. Training for {_n_trials} trials. Results will be stored in {_result_path}")
+    run(_run_exp, _result_path, _n_trials)
