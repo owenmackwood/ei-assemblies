@@ -82,6 +82,9 @@ def run(run_exp: ExperimentType, result_path: Path, n_trials: int) -> None:
     from assemblies_perturb import run_simulation as perturb
     run_task = perturb if run_exp == ExperimentType.PERTURB else learn
 
+    trials_str = "" if run_exp == ExperimentType.PERTURB else f" Training for {n_trials} trials."
+    print(f"Running {run_exp}.{trials_str} Results will be stored in {result_path}")
+
     vary_pl_type = True
     vary_n_neurons = False
     resume_path = None
@@ -174,9 +177,5 @@ def parse_arguments() -> Tuple[ExperimentType, Path, int]:
     return run_exp, result_path, n_trials
 
 
-_run_exp, _result_path, _n_trials = parse_arguments()
-
 if __name__ == "__main__":
-    trials_str = "" if _run_exp == ExperimentType.PERTURB else f" Training for {_n_trials} trials."
-    print(f"Running {_run_exp}.{trials_str} Results will be stored in {_result_path}")
-    run(_run_exp, _result_path, _n_trials)
+    run(*parse_arguments())
