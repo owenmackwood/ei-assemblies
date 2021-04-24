@@ -177,5 +177,6 @@ def parse_arguments() -> Tuple[ExperimentType, Path, int]:
 _run_exp, _result_path, _n_trials = parse_arguments()
 
 if __name__ == "__main__":
-    print(f"Running {_run_exp}. Training for {_n_trials} trials. Results will be stored in {_result_path}")
+    trials_str = "" if _run_exp == ExperimentType.PERTURB else f" Training for {_n_trials} trials."
+    print(f"Running {_run_exp}.{trials_str} Results will be stored in {_result_path}")
     run(_run_exp, _result_path, _n_trials)
