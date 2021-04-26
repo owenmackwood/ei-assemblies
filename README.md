@@ -1,9 +1,8 @@
 # Learning excitatory-inhibitory neuronal assemblies in recurrent networks
 
-Here you will find Python source code for a simulator that can generate the results used for our eLife
-paper _Learning excitatory-inhibitory neuronal assemblies in recurrent networks_ (Owen Mackwood, Laura B. Naumann, 
-Henning Sprekeler). The preprint is available [here](https://doi.org/10.1101/2020.03.30.016352), and a link
-to the final eLife version will be added as soon as it's available.
+Here you will find Python source code for a simulator that can generate the results used for our paper
+[Learning excitatory-inhibitory neuronal assemblies in recurrent networks](https://elifesciences.org/articles/59715) 
+(Owen Mackwood, Laura B. Naumann, Henning Sprekeler).
 
 Questions about this simulator should be directed towards Owen Mackwood. More general questions about the paper should
 be sent to the corresponding author, Henning Sprekeler.
